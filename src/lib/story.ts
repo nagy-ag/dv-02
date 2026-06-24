@@ -17,6 +17,24 @@ export type Chapter = {
   accent: string;
 };
 
+export type EvidenceGroupId =
+  | "movement"
+  | "physicalRisk"
+  | "marketRisk"
+  | "householdEconomy"
+  | "institutionScale"
+  | "urbanNetworks"
+  | "attentionKnowledge"
+  | "lifeScale";
+
+export type EvidenceGroup = {
+  id: EvidenceGroupId;
+  index: string;
+  chapter: ChapterId;
+  datasetIds: string[];
+  defaultDatasetId: string;
+};
+
 export type DatasetStory = {
   id: string;
   chapter: ChapterId;
@@ -90,7 +108,7 @@ export const chapters: Chapter[] = [
     title: "Attention has a tail",
     intro:
       "Language, research, knowledge, and software all distribute attention unevenly. A small number of names carry astonishing weight.",
-    feature: "word-frequency-gutenberg-moby-dick",
+    feature: "wikipedia-pageviews-2025-12-31",
     accent: "#196da8",
   },
   {
@@ -110,6 +128,93 @@ export const chapters: Chapter[] = [
       "Extremes are not only large things. They are also the uneven intervals between events: short bursts, long silences, then sudden movement.",
     feature: "us-market-shock-waiting-times-french",
     accent: "#7b5ea7",
+  },
+];
+
+export const evidenceGroups: EvidenceGroup[] = [
+  {
+    id: "movement",
+    index: "02",
+    chapter: "everyday",
+    defaultDatasetId: "flight-delays-bts-2025-01",
+    datasetIds: [
+      "flight-delays-bts-2025-01",
+      "taxi-trip-distances-nyc-tlc-2025-01",
+    ],
+  },
+  {
+    id: "physicalRisk",
+    index: "03",
+    chapter: "risk",
+    defaultDatasetId: "earthquakes-usgs-2025",
+    datasetIds: ["earthquakes-usgs-2025"],
+  },
+  {
+    id: "marketRisk",
+    index: "04",
+    chapter: "time",
+    defaultDatasetId: "us-market-absolute-returns-french",
+    datasetIds: [
+      "us-market-absolute-returns-french",
+      "us-market-shock-waiting-times-french",
+    ],
+  },
+  {
+    id: "householdEconomy",
+    index: "05",
+    chapter: "inequality",
+    defaultDatasetId: "household-net-worth-scf-2022",
+    datasetIds: [
+      "household-net-worth-scf-2022",
+      "household-income-scf-2022",
+      "household-assets-scf-2022",
+      "household-debt-scf-2022",
+      "country-gdp-worldbank-2024",
+    ],
+  },
+  {
+    id: "institutionScale",
+    index: "06",
+    chapter: "inequality",
+    defaultDatasetId: "firm-assets-sec-2026q1",
+    datasetIds: [
+      "firm-assets-sec-2026q1",
+      "bank-assets-fdic",
+      "debt-securities-bis-2025q4",
+    ],
+  },
+  {
+    id: "urbanNetworks",
+    index: "07",
+    chapter: "inequality",
+    defaultDatasetId: "city-populations-geonames",
+    datasetIds: [
+      "city-populations-geonames",
+      "social-network-snap-facebook",
+    ],
+  },
+  {
+    id: "attentionKnowledge",
+    index: "08",
+    chapter: "attention",
+    defaultDatasetId: "wikipedia-pageviews-2025-12-31",
+    datasetIds: [
+      "wikipedia-pageviews-2025-12-31",
+      "word-frequency-gutenberg-moby-dick",
+      "citations-openalex-2020-top",
+      "open-source-downloads-pypi-2025-12",
+    ],
+  },
+  {
+    id: "lifeScale",
+    index: "09",
+    chapter: "life",
+    defaultDatasetId: "exoplanets-nasa-orbital-periods",
+    datasetIds: [
+      "exoplanets-nasa-orbital-periods",
+      "species-observations-gbif-2025",
+      "body-size-pantheria",
+    ],
   },
 ];
 

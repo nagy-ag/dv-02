@@ -98,6 +98,13 @@ function revealRadius(x: number, y: number) {
   );
 }
 
+function pauseAmbientAnimationDuringTransition() {
+  document.documentElement.dataset.themeTransition = "active";
+  window.setTimeout(() => {
+    delete document.documentElement.dataset.themeTransition;
+  }, transitionDuration + 120);
+}
+
 type ThemeSwitcherProps = {
   label: string;
 };
@@ -121,6 +128,8 @@ export function ThemeSwitcher({ label }: ThemeSwitcherProps) {
       commitTheme(nextTheme);
       return;
     }
+
+    pauseAmbientAnimationDuringTransition();
 
     const { x, y } = toggleOrigin(event.currentTarget);
     const radius = revealRadius(x, y);

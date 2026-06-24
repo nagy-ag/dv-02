@@ -1,11 +1,10 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { usePreloadedQuery, type Preloaded } from "convex/react";
 import {
   BarChart3,
   ChevronDown,
   ChevronRight,
-  Database,
   ExternalLink,
   Languages,
   Layers,
@@ -25,7 +24,6 @@ import {
 } from "react";
 
 import { api } from "../../convex/_generated/api";
-import type { Doc } from "../../convex/_generated/dataModel";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import {
   languageLocales,
@@ -38,12 +36,12 @@ import {
   cautionStories,
   chapters,
   datasetStories,
+  evidenceGroups,
   scaleModes,
   type DatasetStory,
+  type EvidenceGroup,
   type ScaleMode,
 } from "@/lib/story";
-
-type DatasetDoc = Doc<"datasets">;
 
 type RankPoint = {
   rank: number;
@@ -85,6 +83,25 @@ type LocaleContextValue = {
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
 
+type DatasetDoc = {
+  slug: string;
+  title: string;
+  category: string;
+  measure: string;
+  unit: string;
+  sourceName: string;
+  sourceUrl: string;
+  retrievedAt: string;
+  notes: string;
+  stats: {
+    count: number;
+    min: number;
+    max: number;
+    mean: number;
+  };
+  topItems: Array<Record<string, string | number | boolean | null>>;
+};
+
 function useLocale() {
   const context = useContext(LocaleContext);
   if (!context) {
@@ -93,8 +110,98 @@ function useLocale() {
   return context;
 }
 
-export function ScaleButtonApp() {
-  const payload = useQuery(api.scaleData.list);
+function useLinearModeOnViewportEntry<T extends HTMLElement>(
+  onEnter: (mode: ScaleMode) => void,
+  resetKey: string,
+) {
+  const [target, setTarget] = useState<T | null>(null);
+  const wasVisibleRef = useRef(false);
+  const onEnterRef = useRef(onEnter);
+  const targetRef = useCallback((node: T | null) => {
+    setTarget(node);
+  }, []);
+
+  useEffect(() => {
+    onEnterRef.current = onEnter;
+  }, [onEnter]);
+
+  useEffect(() => {
+    wasVisibleRef.current = false;
+  }, [resetKey]);
+
+  useEffect(() => {
+    if (!target || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const isVisible = entry.isIntersecting;
+
+        if (isVisible && !wasVisibleRef.current) {
+          onEnterRef.current("linear");
+        }
+
+        wasVisibleRef.current = isVisible;
+      },
+      {
+        rootMargin: "0px 0px -8% 0px",
+        threshold: 0.01,
+      },
+    );
+
+    observer.observe(target);
+
+    return () => observer.disconnect();
+  }, [resetKey, target]);
+
+  return targetRef;
+}
+
+function useRenderWhenNearViewport<T extends HTMLElement>(rootMargin = "720px") {
+  const [target, setTarget] = useState<T | null>(null);
+  const [shouldRender, setShouldRender] = useState(false);
+  const targetRef = useCallback((node: T | null) => {
+    setTarget(node);
+  }, []);
+
+  useEffect(() => {
+    if (shouldRender || !target) {
+      return;
+    }
+
+    if (typeof IntersectionObserver === "undefined") {
+      window.setTimeout(() => setShouldRender(true), 0);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setShouldRender(true);
+          observer.disconnect();
+        }
+      },
+      {
+        rootMargin,
+        threshold: 0.01,
+      },
+    );
+
+    observer.observe(target);
+
+    return () => observer.disconnect();
+  }, [rootMargin, shouldRender, target]);
+
+  return [targetRef, shouldRender] as const;
+}
+
+export function ScaleButtonApp({
+  preloadedScaleData,
+}: {
+  preloadedScaleData: Preloaded<typeof api.scaleData.list>;
+}) {
+  const payload = usePreloadedQuery(preloadedScaleData);
   const [language, setLanguageState] = useState<Language>("en");
   const t = translations[language];
 
@@ -116,10 +223,6 @@ export function ScaleButtonApp() {
   };
 
   const bundles = useMemo(() => {
-    if (!payload) {
-      return null;
-    }
-
     const groupsBySlug = new Map(
       payload.groups.map((group) => [group.dataset.slug, group]),
     );
@@ -144,19 +247,11 @@ export function ScaleButtonApp() {
 
   const bundleMap = useMemo(() => {
     const map = new Map<string, DatasetBundle>();
-    for (const bundle of bundles ?? []) {
+    for (const bundle of bundles) {
       map.set(bundle.story.id, bundle);
     }
     return map;
   }, [bundles]);
-
-  if (!bundles) {
-    return (
-      <LocaleContext.Provider value={{ language, setLanguage, t }}>
-        <LoadingExperience />
-      </LocaleContext.Provider>
-    );
-  }
 
   return (
     <LocaleContext.Provider value={{ language, setLanguage, t }}>
@@ -171,10 +266,10 @@ export function ScaleButtonApp() {
           <ScaleMachine
             bundle={bundleMap.get("word-frequency-gutenberg-moby-dick")}
           />
-          {chapters.map((chapter) => (
-            <ChapterSection
-              key={chapter.id}
-              chapterId={chapter.id}
+          {evidenceGroups.map((group) => (
+            <EvidenceGroupSection
+              key={group.id}
+              group={group}
               bundleMap={bundleMap}
             />
           ))}
@@ -187,20 +282,6 @@ export function ScaleButtonApp() {
         <SiteFooter />
       </div>
     </LocaleContext.Provider>
-  );
-}
-
-function LoadingExperience() {
-  const { t } = useLocale();
-
-  return (
-    <div className="loading-screen">
-      <div className="loading-panel">
-        <Database size={24} />
-        <p>{t.loading.title}</p>
-        <span>{t.loading.detail}</span>
-      </div>
-    </div>
   );
 }
 
@@ -246,12 +327,10 @@ function SiteHeader() {
         <div className="mobile-menu" aria-label={t.nav.openNavigation}>
           {[
             ["#machine", t.nav.button],
-            ["#chapter-everyday", t.chapters.everyday.title],
-            ["#chapter-risk", t.chapters.risk.title],
-            ["#chapter-inequality", t.chapters.inequality.title],
-            ["#chapter-attention", t.chapters.attention.title],
-            ["#chapter-life", t.chapters.life.title],
-            ["#chapter-time", t.chapters.time.title],
+            ...evidenceGroups.map((group) => [
+              `#evidence-${group.id}`,
+              t.evidenceGroups[group.id].title,
+            ] as const),
             ["#atlas", t.nav.atlas],
             ["#comparison", t.nav.compare],
             ["#caution", t.nav.caution],
@@ -318,9 +397,9 @@ function StoryRail() {
     <nav className="story-rail" aria-label={t.nav.story}>
       <a href="#top">{t.nav.open}</a>
       <a href="#machine">{t.nav.button}</a>
-      {chapters.map((chapter) => (
-        <a key={chapter.id} href={`#chapter-${chapter.id}`}>
-          {t.chapters[chapter.id].title.split(" ")[0]}
+      {evidenceGroups.map((group) => (
+        <a key={group.id} href={`#evidence-${group.id}`}>
+          {t.evidenceGroups[group.id].title.split(" ")[0]}
         </a>
       ))}
       <a href="#atlas">{t.nav.atlas}</a>
@@ -1190,8 +1269,13 @@ function OpeningBand() {
 
 function ScaleMachine({ bundle }: { bundle?: DatasetBundle }) {
   const [mode, setMode] = useState<ScaleMode>("linear");
-  const { t } = useLocale();
+  const chartEntryRef = useLinearModeOnViewportEntry<HTMLDivElement>(
+    setMode,
+    bundle?.story.id ?? "machine-empty",
+  );
+  const { language, t } = useLocale();
   const fit = bundle ? regressionForMode(bundle.points, mode) : null;
+  const insight = bundle ? buildScaleInsight(bundle, mode, t, language, fit ?? undefined) : null;
 
   return (
     <section className="machine-section story-screen" id="machine" aria-labelledby="machine-title">
@@ -1203,24 +1287,23 @@ function ScaleMachine({ bundle }: { bundle?: DatasetBundle }) {
         </header>
 
         <div className="machine-layout">
-          <div className="chart-stage">
+          <div className="chart-stage" ref={chartEntryRef}>
             {bundle ? (
-              <Chart bundle={bundle} mode={mode} showFit={mode !== "linear"} />
+              <DeferredChart bundle={bundle} mode={mode} showFit={mode !== "linear"} />
             ) : (
               <div className="chart-empty">{t.machine.noDataset}</div>
             )}
           </div>
           <div className="machine-controls">
             <ScaleToggle mode={mode} onChange={setMode} />
-            <ol className="scale-lessons">
-              {allModes.map((item) => (
-                <li key={item} data-active={mode === item}>
-                  <span>{t.scaleModes[item].label}</span>
-                  <strong>{t.scaleModes[item].question}</strong>
-                  <p>{t.scaleModes[item].summary}</p>
-                </li>
-              ))}
-            </ol>
+            {insight ? (
+              <div className="machine-insight" key={`${bundle?.story.id}-${mode}`}>
+                <span>{t.scaleInsight.activeScale} / {t.scaleModes[mode].label}</span>
+                <strong>{insight.title}</strong>
+                <p>{insight.body}</p>
+                <em>{insight.metric}</em>
+              </div>
+            ) : null}
             {fit ? (
               <div className="fit-note">
                 <span>{t.machine.visualStraightness}</span>
@@ -1234,36 +1317,52 @@ function ScaleMachine({ bundle }: { bundle?: DatasetBundle }) {
   );
 }
 
-function ChapterSection({
-  chapterId,
+function EvidenceGroupSection({
+  group,
   bundleMap,
 }: {
-  chapterId: string;
+  group: EvidenceGroup;
   bundleMap: Map<string, DatasetBundle>;
 }) {
   const { t } = useLocale();
-  const chapter = chapters.find((item) => item.id === chapterId);
+  const [activeDatasetId, setActiveDatasetId] = useState(group.defaultDatasetId);
+  const groupCopy = t.evidenceGroups[group.id];
+  const bundles = group.datasetIds
+    .map((datasetId) => bundleMap.get(datasetId))
+    .filter((bundle): bundle is DatasetBundle => Boolean(bundle));
+  const activeBundle =
+    bundles.find((bundle) => bundle.story.id === activeDatasetId) ??
+    bundles[0];
 
-  if (!chapter) {
+  if (!activeBundle) {
     return null;
   }
-
-  const feature = bundleMap.get(chapter.feature);
 
   return (
     <section
       className="chapter-section story-screen"
-      id={`chapter-${chapter.id}`}
-      aria-labelledby={`${chapter.id}-title`}
+      id={`evidence-${group.id}`}
+      aria-labelledby={`${group.id}-title`}
     >
       <div className="page-shell">
-        <header className="section-heading">
-          <p className="section-index">{chapter.index} / {t.nav.chapters}</p>
-          <h2 id={`${chapter.id}-title`}>{t.chapters[chapter.id].title}</h2>
-          <p>{t.chapters[chapter.id].intro}</p>
+        <header className="section-heading chapter-heading">
+          <p className="section-index">{group.index} / {t.nav.chapters}</p>
+          <h2 id={`${group.id}-title`}>{groupCopy.title}</h2>
+          <p className="chapter-intro">{groupCopy.intro}</p>
+          {bundles.length > 1 ? (
+            <EvidenceDatasetSwitcher
+              group={group}
+              bundles={bundles}
+              activeDatasetId={activeBundle.story.id}
+              onChange={setActiveDatasetId}
+            />
+          ) : null}
         </header>
 
-        {feature ? <FeaturePanel bundle={feature} /> : null}
+        <FeaturePanel
+          key={activeBundle.story.id}
+          bundle={activeBundle}
+        />
       </div>
     </section>
   );
@@ -1274,21 +1373,27 @@ function FeaturePanel({
 }: {
   bundle: DatasetBundle;
 }) {
-  const [mode, setMode] = useState<ScaleMode>(bundle.story.defaultMode);
+  const [mode, setMode] = useState<ScaleMode>("linear");
+  const chartEntryRef = useLinearModeOnViewportEntry<HTMLDivElement>(
+    setMode,
+    bundle.story.id,
+  );
   const { language, t } = useLocale();
   const fit = regressionForMode(bundle.points, mode);
+  const story = localizeStory(bundle, t);
+  const insight = buildScaleInsight(bundle, mode, t, language, fit);
   const span = Math.log10(bundle.dataset.stats.max / bundle.dataset.stats.min);
 
   return (
     <article className="feature-panel">
       <div className="feature-copy">
-        <p className="feature-label">{t.feature.label}</p>
         <h3>{localizeDatasetTitle(bundle, t)}</h3>
-        <p className="feature-hook">{localizeStory(bundle, t).hook}</p>
-        <div className="meaning-panel">
-          <span>{t.scaleModes[mode].question}</span>
-          <strong>{modeMeaning(mode, t)}</strong>
-          <p>{localizeStory(bundle, t).detail}</p>
+        <p className="feature-hook">{story.hook}</p>
+        <div className="meaning-panel" key={`${bundle.story.id}-${mode}`}>
+          <span>{t.scaleInsight.activeScale} / {t.scaleModes[mode].label}</span>
+          <strong>{insight.title}</strong>
+          <p>{insight.body}</p>
+          <em>{insight.metric}</em>
         </div>
         <details className="evidence-drawer">
           <summary>{t.feature.evidence}</summary>
@@ -1301,24 +1406,63 @@ function FeaturePanel({
           <TopItems bundle={bundle} />
         </details>
       </div>
-      <div className="feature-chart-column">
+      <div className="feature-chart-column" ref={chartEntryRef}>
         <div className="feature-toolbar">
           <ScaleToggle mode={mode} onChange={setMode} />
           <span>
-            {t.scaleModes[mode].question} {t.feature.score} {formatScore(fit.r2)}
+            {t.scaleModes[mode].question} / {t.feature.score} {formatScore(fit.r2)}
           </span>
         </div>
         <div className="chart-stage feature-chart">
-          <Chart bundle={bundle} mode={mode} showFit={mode !== "linear"} />
+          <DeferredChart bundle={bundle} mode={mode} showFit={mode !== "linear"} />
         </div>
+        <p className="chart-source-note">
+          <strong>{t.scaleInsight.sourceNote}:</strong> {story.detail}
+        </p>
       </div>
     </article>
   );
 }
 
+function EvidenceDatasetSwitcher({
+  group,
+  bundles,
+  activeDatasetId,
+  onChange,
+}: {
+  group: EvidenceGroup;
+  bundles: DatasetBundle[];
+  activeDatasetId: string;
+  onChange: (datasetId: string) => void;
+}) {
+  const { t } = useLocale();
+
+  return (
+    <div
+      className="evidence-dataset-switcher"
+      aria-label={t.evidenceGroups[group.id].switcherLabel}
+    >
+      {bundles.map((bundle) => (
+        <button
+          type="button"
+          key={bundle.story.id}
+          aria-pressed={activeDatasetId === bundle.story.id}
+          onClick={() => onChange(bundle.story.id)}
+        >
+          {localizeDatasetTitle(bundle, t)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ScaleAtlas({ bundles }: { bundles: DatasetBundle[] }) {
   const [chapterFilter, setChapterFilter] = useState<"all" | string>("all");
-  const [mode, setMode] = useState<ScaleMode>("tail");
+  const [mode, setMode] = useState<ScaleMode>("linear");
+  const chartEntryRef = useLinearModeOnViewportEntry<HTMLDivElement>(
+    setMode,
+    `atlas-${chapterFilter}`,
+  );
   const { t } = useLocale();
   const visibleBundles = bundles.filter((bundle) =>
     chapterFilter === "all" ? true : bundle.story.chapter === chapterFilter,
@@ -1354,7 +1498,7 @@ function ScaleAtlas({ bundles }: { bundles: DatasetBundle[] }) {
           </div>
           <ScaleToggle mode={mode} onChange={setMode} />
         </div>
-        <div className="atlas-stage">
+        <div className="atlas-stage" ref={chartEntryRef}>
           <div className="atlas-count">
             <Layers size={22} />
             <strong>{visibleBundles.length}</strong>
@@ -1384,7 +1528,7 @@ function AtlasCard({
   return (
     <article className="atlas-card">
       <div className="mini-chart">
-        <Chart bundle={bundle} mode={mode} compact noGrid />
+        <DeferredChart bundle={bundle} mode={mode} compact noGrid />
       </div>
       <div>
         <p>{localizeCategory(bundle.dataset.category, t)}</p>
@@ -1396,37 +1540,52 @@ function AtlasCard({
 }
 
 function ComparisonWall({ bundles }: { bundles: DatasetBundle[] }) {
-  const [mode, setMode] = useState<ScaleMode>("loglog");
+  const [mode, setMode] = useState<ScaleMode>("linear");
+  const [open, setOpen] = useState(false);
+  const chartEntryRef = useLinearModeOnViewportEntry<HTMLDivElement>(
+    setMode,
+    `comparison-${open ? "open" : "closed"}`,
+  );
   const { t } = useLocale();
 
   return (
     <section className="comparison-section" id="comparison" aria-labelledby="comparison-title">
       <div className="page-shell">
-        <header className="section-heading comparison-heading">
-          <p className="section-index">{t.comparison.index}</p>
-          <h2 id="comparison-title">{t.comparison.title}</h2>
-          <p>{t.comparison.body}</p>
-        </header>
-        <div className="comparison-toolbar">
-          <ScaleToggle mode={mode} onChange={setMode} />
-          <p>{t.comparison.showingPrefix} {t.scaleModes[mode].summary.toLowerCase()}</p>
-        </div>
-        <div className="comparison-grid">
-          {bundles.map((bundle) => {
-            const fit = regressionForMode(bundle.points, mode);
-            return (
-              <article className="comparison-card" key={bundle.story.id}>
-                <div className="mini-chart">
-                  <Chart bundle={bundle} mode={mode} compact noGrid />
-                </div>
-                <div>
-                  <span>{localizeDatasetTitle(bundle, t)}</span>
-                  <strong>{formatScore(fit.r2)}</strong>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+        <details
+          className="comparison-drawer"
+          open={open}
+          onToggle={(event) => setOpen(event.currentTarget.open)}
+        >
+          <summary>
+            <span>{t.comparison.index}</span>
+            <strong id="comparison-title">{t.comparison.openWall}</strong>
+            <small>{t.comparison.body}</small>
+          </summary>
+          {open ? (
+            <>
+              <div className="comparison-toolbar">
+                <ScaleToggle mode={mode} onChange={setMode} />
+                <p>{t.comparison.showingPrefix} {t.scaleModes[mode].summary.toLowerCase()}</p>
+              </div>
+              <div className="comparison-grid" ref={chartEntryRef}>
+                {bundles.map((bundle) => {
+                  const fit = regressionForMode(bundle.points, mode);
+                  return (
+                    <article className="comparison-card" key={bundle.story.id}>
+                      <div className="mini-chart">
+                        <DeferredChart bundle={bundle} mode={mode} compact noGrid />
+                      </div>
+                      <div>
+                        <span>{localizeDatasetTitle(bundle, t)}</span>
+                        <strong>{formatScore(fit.r2)}</strong>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
+        </details>
       </div>
     </section>
   );
@@ -1460,19 +1619,17 @@ function CautionSection({
                 <h3>{localizeDatasetTitle(bundle, t)}</h3>
                 <span>{caution.text}</span>
                 <div className="caution-charts">
-                  {(["linear", "log", "loglog"] as ScaleMode[]).map((mode) => (
-                    <div key={mode}>
-                      <div className="caution-chart-label">
-                        <span>{t.scaleModes[mode].label}</span>
-                        <strong>
-                          {formatScore(regressionForMode(bundle.points, mode).r2)}
-                        </strong>
-                      </div>
-                      <div className="mini-chart">
-                        <Chart bundle={bundle} mode={mode} compact noGrid />
-                      </div>
+                  <div>
+                    <div className="caution-chart-label">
+                      <span>{t.scaleModes.linear.label}</span>
+                      <strong>
+                        {formatScore(regressionForMode(bundle.points, "linear").r2)}
+                      </strong>
                     </div>
-                  ))}
+                    <div className="mini-chart">
+                      <DeferredChart bundle={bundle} mode="linear" compact noGrid />
+                    </div>
+                  </div>
                 </div>
               </article>
             );
@@ -1507,9 +1664,16 @@ function SourcesSection({ bundles }: { bundles: DatasetBundle[] }) {
               target="_blank"
               rel="noreferrer"
             >
-              <span>
+              <span className="source-row-copy">
                 <strong>{localizeDatasetTitle(bundle, t)}</strong>
                 <small>{bundle.dataset.sourceName}</small>
+                <cite className="source-apa">
+                  <span>{t.sources.apaReference}</span>
+                  {bundle.dataset.sourceName}. (n.d.).{" "}
+                  <em>{bundle.dataset.title}</em> [Data set].{" "}
+                  {formatApaRetrieval(bundle.dataset.retrievedAt)} from{" "}
+                  {bundle.dataset.sourceUrl}
+                </cite>
               </span>
               <ExternalLink size={16} />
             </a>
@@ -1593,6 +1757,54 @@ function ScaleToggle({
           {compact ? t.scaleModes[item].shortLabel : t.scaleModes[item].label}
         </button>
       ))}
+    </div>
+  );
+}
+
+function DeferredChart(props: {
+  bundle: DatasetBundle;
+  mode: ScaleMode;
+  compact?: boolean;
+  hero?: boolean;
+  noGrid?: boolean;
+  showFit?: boolean;
+  eager?: boolean;
+}) {
+  const [chartRef, shouldRender] = useRenderWhenNearViewport<HTMLDivElement>(
+    props.compact ? "520px" : "760px",
+  );
+  const renderChart = props.eager || shouldRender;
+  const className = props.hero
+    ? "deferred-chart deferred-chart--hero"
+    : props.compact
+      ? "deferred-chart deferred-chart--compact"
+      : "deferred-chart";
+
+  return (
+    <div className={className} ref={chartRef}>
+      {renderChart ? <Chart {...props} /> : <ChartPlaceholder {...props} />}
+    </div>
+  );
+}
+
+function ChartPlaceholder({
+  compact = false,
+  hero = false,
+}: {
+  compact?: boolean;
+  hero?: boolean;
+}) {
+  const className = hero
+    ? "chart chart--hero chart-placeholder"
+    : compact
+      ? "chart chart--compact chart-placeholder"
+      : "chart chart-placeholder";
+
+  return (
+    <div className={className} aria-hidden="true">
+      <span />
+      <span />
+      <span />
     </div>
   );
 }
@@ -1859,20 +2071,45 @@ function transformPoints(points: RankPoint[], mode: ScaleMode) {
     .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
 }
 
-function modeMeaning(mode: ScaleMode, t: Translation) {
-  if (mode === "linear") {
-    return t.scaleModes.linear.summary;
-  }
+function buildScaleInsight(
+  bundle: DatasetBundle,
+  mode: ScaleMode,
+  t: Translation,
+  language: Language,
+  fit = regressionForMode(bundle.points, mode),
+) {
+  const topItem = bundle.dataset.topItems[0];
+  const topLabel = String(topItem?.label ?? localizeDatasetTitle(bundle, t));
+  const topValue = Number(topItem?.value ?? bundle.dataset.stats.max);
+  const safeMean = Math.max(bundle.dataset.stats.mean, Number.EPSILON);
+  const positiveValues = bundle.points
+    .map((point) => point.value)
+    .filter((value) => value > 0);
+  const minPositive = positiveValues.length > 0 ? Math.min(...positiveValues) : 1;
+  const maxPositive = Math.max(bundle.dataset.stats.max, minPositive);
+  const tailPoint =
+    bundle.points[Math.min(bundle.points.length - 1, Math.max(0, Math.floor(bundle.points.length * 0.05)))] ??
+    bundle.points[bundle.points.length - 1];
+  const template = t.scaleInsight.templates[mode];
+  const variables = {
+    topLabel,
+    topValue: formatValue(topValue, bundle.dataset.unit, t, language),
+    multiple: formatRatio(topValue / safeMean, language),
+    orders: formatRatio(Math.log10(maxPositive / minPositive), language),
+    score: formatScore(fit.r2),
+    threshold: formatValue(tailPoint?.value ?? bundle.dataset.stats.max, bundle.dataset.unit, t, language),
+    probability: formatPercent(tailPoint?.ccdf ?? 0, language),
+  };
 
-  if (mode === "log") {
-    return t.scaleModes.log.summary;
-  }
+  return {
+    title: template.title,
+    body: renderTemplate(template.body, variables),
+    metric: renderTemplate(template.metric, variables),
+  };
+}
 
-  if (mode === "loglog") {
-    return t.scaleModes.loglog.summary;
-  }
-
-  return t.scaleModes.tail.summary;
+function renderTemplate(template: string, variables: Record<string, string>) {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) => variables[key] ?? match);
 }
 
 function createPath(points: HeroVisualPoint[]) {
@@ -1903,8 +2140,11 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function pseudoRandom(seed: number) {
-  const value = Math.sin(seed * 12.9898) * 43758.5453;
-  return value - Math.floor(value);
+  let value = Math.trunc(seed) ^ 0x9e3779b9;
+  value = Math.imul(value ^ (value >>> 16), 0x85ebca6b);
+  value = Math.imul(value ^ (value >>> 13), 0xc2b2ae35);
+  value ^= value >>> 16;
+  return (value >>> 0) / 4294967296;
 }
 
 function safeLog(value: number) {
@@ -2062,6 +2302,34 @@ function formatCompact(value: number, language: Language) {
   return new Intl.NumberFormat(languageLocales[language], {
     notation: "compact",
     maximumFractionDigits: value < 10 ? 2 : 1,
+  }).format(value);
+}
+
+function formatApaRetrieval(retrievedAt: string) {
+  const date = new Date(retrievedAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Retrieved";
+  }
+
+  const formattedDate = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+
+  return `Retrieved ${formattedDate},`;
+}
+
+function formatRatio(value: number, language: Language) {
+  if (!Number.isFinite(value)) {
+    return "n/a";
+  }
+
+  return new Intl.NumberFormat(languageLocales[language], {
+    notation: value >= 10_000 ? "compact" : "standard",
+    maximumFractionDigits: value < 10 ? 1 : 0,
   }).format(value);
 }
 
