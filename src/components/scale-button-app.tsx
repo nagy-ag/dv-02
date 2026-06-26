@@ -2186,15 +2186,27 @@ function chartDomain(
   const paddedDomain = padExtent(rawDomain, paddingRatio);
 
   if (axis === "x" && (mode === "linear" || mode === "log")) {
-    return [Math.max(1, paddedDomain[0]), paddedDomain[1]];
+    return [Math.max(1, rawDomain[0]), rawDomain[1]];
   }
 
   if (axis === "y" && mode === "linear") {
-    return [Math.max(0, paddedDomain[0]), paddedDomain[1]];
+    return [Math.min(0, rawDomain[0]), rawDomain[1]];
   }
 
   if (axis === "x" && mode === "loglog") {
-    return [Math.max(0, paddedDomain[0]), paddedDomain[1]];
+    return [Math.max(0, rawDomain[0]), rawDomain[1]];
+  }
+
+  if (mode === "tail") {
+    if (axis === "x") {
+      return rawDomain;
+    }
+
+    return [rawDomain[0], 0];
+  }
+
+  if (axis === "y" && (mode === "log" || mode === "loglog")) {
+    return rawDomain;
   }
 
   return paddedDomain;
@@ -2250,7 +2262,9 @@ function axisTitle(
 ) {
   if (mode === "tail") {
     return axis === "x"
-      ? `${localizeUnit(dataset.unit, t)} ${t.chart.tailThreshold}`
+      ? renderTemplate(t.chart.tailThreshold, {
+          unit: localizeUnit(dataset.unit, t),
+        })
       : t.chart.tailProbability;
   }
 
