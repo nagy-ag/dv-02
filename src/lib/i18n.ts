@@ -143,7 +143,7 @@ export type Translation = {
     restart: string;
   };
   footer: {
-    built: string;
+    repository: string;
   };
   chart: {
     linearSide: string;
@@ -759,7 +759,7 @@ export const translations = {
       restart: "Run the experiment again",
     },
     footer: {
-      built: "Built from public data imported into Convex.",
+      repository: "View source on GitHub",
     },
     chart: {
       linearSide: "Linear",
@@ -1054,7 +1054,7 @@ export const translations = {
       restart: "Futtasd újra a kísérletet",
     },
     footer: {
-      built: "Nyilvános adatokból építve, Convexbe importálva.",
+      repository: "Forráskód a GitHubon",
     },
     chart: {
       linearSide: "Lineáris",
@@ -1349,7 +1349,7 @@ export const translations = {
       restart: "Rulează din nou experimentul",
     },
     footer: {
-      built: "Construit din date publice importate în Convex.",
+      repository: "Cod sursă pe GitHub",
     },
     chart: {
       linearSide: "Liniar",
