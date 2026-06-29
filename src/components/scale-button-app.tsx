@@ -1720,7 +1720,15 @@ function SiteFooter() {
     <footer className="site-footer">
       <div className="page-shell">
         <p>{t.nav.brand}</p>
-        <p>{t.footer.built}</p>
+        <a
+          className="footer-repository-link"
+          href="https://github.com/nagy-ag/dv-02"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <ExternalLink size={15} aria-hidden="true" />
+          {t.footer.repository}
+        </a>
         <a href="#sources">{t.sources.dataAndCitations}</a>
       </div>
     </footer>
